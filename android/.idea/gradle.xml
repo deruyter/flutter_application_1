@@ -7,14 +7,15 @@
         <compositeConfiguration>
           <compositeBuild compositeDefinitionSource="SCRIPT">
             <builds>
-              <build path="$PROJECT_DIR$/../../../SDKs/flutter/packages/flutter_tools/gradle" name="gradle">
+              <build path="$USER_HOME$/snap/flutter/common/flutter/packages/flutter_tools/gradle" name="gradle">
                 <projects>
-                  <project path="$PROJECT_DIR$/../../../SDKs/flutter/packages/flutter_tools/gradle" />
+                  <project path="$USER_HOME$/snap/flutter/common/flutter/packages/flutter_tools/gradle" />
                 </projects>
               </build>
             </builds>
           </compositeBuild>
         </compositeConfiguration>
+        <option name="testRunner" value="CHOOSE_PER_TEST" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="gradleJvm" value="#GRADLE_LOCAL_JAVA_HOME" />
         <option name="modules">
@@ -22,11 +23,10 @@
             <option value="$USER_HOME$/.pub-cache/hosted/pub.dev/url_launcher_android-6.3.16/android" />
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/app" />
-            <option value="$PROJECT_DIR$/../../../SDKs/flutter/packages/flutter_tools/gradle" />
-            <option value="$PROJECT_DIR$/../../../SDKs/flutter/packages/integration_test/android" />
+            <option value="$USER_HOME$/snap/flutter/common/flutter/packages/flutter_tools/gradle" />
+            <option value="$USER_HOME$/snap/flutter/common/flutter/packages/integration_test/android" />
           </set>
         </option>
-        <option name="resolveExternalAnnotations" value="false" />
       </GradleProjectSettings>
     </option>
   </component>
