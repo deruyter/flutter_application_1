@@ -5,6 +5,10 @@ class PlayerStats {
   int firstServeIn = 0;
   int firstServeTotal = 0;
 
+  int secondServeIn = 0;
+  int firstServePointsWon = 0;
+  int secondServePointsWon = 0;
+
   int winners = 0;
   int unforcedErrors = 0;
 

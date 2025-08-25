@@ -1,12 +1,12 @@
-import '../models/match_models.dart';  // pour MatchConfig, MatchScore, SetScore
-import '../models/player_stats.dart';   // pour PlayerStats
-import '../models/enums.dart';          // pour BestOf
-
+import '../models/match_models.dart'; // pour MatchConfig, MatchScore, SetScore
+import '../models/player_stats.dart'; // pour PlayerStats
+import '../models/enums.dart'; // pour BestOf
 
 class MatchController {
   final MatchConfig config;
   final MatchScore score = MatchScore();
   final List<PlayerStats> stats = [PlayerStats(), PlayerStats()];
+  int currentServerIndex;
 
   bool matchFinished = false;
 
@@ -18,17 +18,18 @@ class MatchController {
 
   bool inTieBreak = false;
 
-  MatchController(this.config);
+  MatchController(this.config)
+    : currentServerIndex = config.firstServerIndex; // 0 ou 1 selon qui commence
 
   /// Ajoute un point à un joueur
   void addPoint(int playerIndex) {
-    if (matchFinished) return;
-
     if (inTieBreak) {
       _addTieBreakPoint(playerIndex);
     } else {
       _addNormalPoint(playerIndex);
     }
+    _addPointToServeStats(playerIndex, currentServerIndex);
+    if (matchFinished) return;
   }
 
   /// Points en jeu normal
@@ -59,7 +60,6 @@ class MatchController {
     } else {
       score.currentSet.gamesP2++;
     }
-
     // Vérifie tie-break
     final p1 = score.currentSet.gamesP1;
     final p2 = score.currentSet.gamesP2;
@@ -70,6 +70,7 @@ class MatchController {
     } else {
       _checkSetWin();
     }
+    currentServerIndex = 1 - currentServerIndex;
   }
 
   /// Points en tie-break
@@ -139,5 +140,15 @@ class MatchController {
   void addUnforcedError(int playerIndex) {
     stats[playerIndex].unforcedErrors++;
     addPoint(1 - playerIndex);
+  }
+
+  void _addPointToServeStats(int winnerIndex, int serverIndex) {
+    if (winnerIndex == serverIndex) {
+      // Le serveur a gagné le point
+      stats[serverIndex].pointsWonOnServe++;
+    } else {
+      // Le joueur en retour a gagné le point
+      stats[1 - serverIndex].pointsWonOnReturn++;
+    }
   }
 }

@@ -89,6 +89,7 @@ class _LivePageState extends State<LivePage> {
     final c = widget.controller;
     final name =
         playerIndex == 0 ? c.config.player1Name : c.config.player2Name;
+    final isServer = playerIndex == c.currentServerIndex;
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -96,14 +97,16 @@ class _LivePageState extends State<LivePage> {
         children: [
           Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: () => setState(() => c.addAce(playerIndex)),
-            child: const Text("Ace"),
-          ),
-          ElevatedButton(
-            onPressed: () => setState(() => c.addDoubleFault(playerIndex)),
-            child: const Text("Double faute"),
-          ),
+          if (!isServer) ...[
+            ElevatedButton(
+              onPressed: () => setState(() => c.addAce(playerIndex)),
+              child: const Text("Ace"),
+            ),
+            ElevatedButton(
+              onPressed: () => setState(() => c.addDoubleFault(playerIndex)),
+              child: const Text("Double faute"),
+            ),
+          ],
           ElevatedButton(
             onPressed: () => setState(() => c.addWinner(playerIndex)),
             child: const Text("Coup gagnant"),
