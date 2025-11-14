@@ -68,15 +68,15 @@ class _HomePageState extends State<HomePage> {
                   firstServerIndex: _firstServer,
                 );
                 final controller = MatchController(config);
-                Navigator.push(
+                Navigator.push<void>(
                   context,
-                  MaterialPageRoute(
+                  MaterialPageRoute<void>(
                     builder: (_) => LivePage(controller: controller),
                   ),
                 );
               },
               child: const Text("Démarrer le match"),
-            )
+            ),
           ],
         ),
       ),

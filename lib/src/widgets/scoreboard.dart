@@ -8,52 +8,141 @@ class Scoreboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = controller;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      color: Colors.green[100],
-      child: Column(
-        children: [
-          // Noms et points
-          Row(
-            children: [
-              Expanded(child: _playerRow(0)),
-              Expanded(child: _playerRow(1)),
-            ],
+    return Card(
+      elevation: 6,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.green.shade50, Colors.green.shade100],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          const SizedBox(height: 10),
-          // Sets joués
-          _setScores(),
-        ],
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            // Noms et points
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: _playerColumn(0)),
+                _centerScoreCard(),
+                Expanded(child: _playerColumn(1)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Sets joués
+            _setScores(),
+          ],
+        ),
       ),
     );
   }
 
-  /// Ligne affichant le joueur et ses points
-  Widget _playerRow(int playerIndex) {
+  /// Column affichant le joueur, son nom et un indicateur de serveur
+  Widget _playerColumn(int playerIndex) {
     final name =
         playerIndex == 0
             ? controller.config.player1Name
             : controller.config.player2Name;
-
-    // Si tie-break, afficher tie-break points
+    final isServer = controller.currentServerIndex == playerIndex;
     final pointsDisplay =
         controller.inTieBreak
             ? controller.tieBreakPoints[playerIndex].toString()
             : _pointToString(controller.currentPoints[playerIndex]);
 
+    final color =
+        playerIndex == 0 ? Colors.blue.shade700 : Colors.orange.shade800;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          name,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isServer)
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.sports_tennis, size: 18, color: color),
+              ),
+            Flexible(
+              child: Text(
+                name,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ),
+          ],
         ),
+        const SizedBox(height: 8),
         Text(
           pointsDisplay,
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _centerScoreCard() {
+    return Container(
+      width: 120,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text('Sets', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                controller.score.sets.last.gamesP1.toString(),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 6.0),
+                child: Text(
+                  '-',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Text(
+                controller.score.sets.last.gamesP2.toString(),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
