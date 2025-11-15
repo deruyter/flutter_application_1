@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../state/match_controller.dart';
 import '../models/match_event.dart';
+import '../state/match_controller.dart';
 
 class InputPage extends StatefulWidget {
   final MatchController controller;

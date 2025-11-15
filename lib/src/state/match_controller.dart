@@ -1,8 +1,14 @@
-import '../models/match_models.dart'; // pour MatchConfig, MatchScore, SetScore
-import '../models/player_stats.dart'; // pour PlayerStats
-import '../models/enums.dart'; // pour BestOf
-import '../models/match_event.dart'; // pour MatchEvent
+import '../models/enums.dart';
+import '../models/match_event.dart';
+import '../models/match_models.dart';
+import '../models/player_stats.dart';
 
+/// Central controller that stores the event history and derived match state.
+///
+/// Use `addEvent` to record any match event (aces, winners, faults, points, etc.).
+/// The controller keeps an ordered `events` list which is the source-of-truth; derived
+/// state (score, player stats) is computed by applying events. Call `undoLastEvent`
+/// to remove the final event and replay the history.
 class MatchController {
   final MatchConfig config;
   final MatchScore score = MatchScore();
@@ -10,10 +16,16 @@ class MatchController {
   final List<MatchEvent> events = [];
   final List<bool> awaitingSecondServe = [false, false];
   int currentServerIndex;
-  // Internal: whether a point is currently in progress (serve registered, awaiting resolution)
-  bool _pointInProgress = false;
-  // If at start of the point the given player had match point, store their index
-  int? _pendingMatchPointPlayer;
+  // Tie-break internal state
+  bool _isSuperTieBreak = false;
+  int _tieBreakPointCount =
+      0; // number of tie-break points played in current TB
+  int _tieBreakTarget =
+      7; // points needed to win current TB (7 normal, 10 super)
+  int? _tieBreakStartServer;
+  // Internal flags previously used for advanced point-tracking have been
+  // removed to simplify the controller. Keep the event history as the
+  // authoritative source-of-truth and infer state during replay when needed.
 
   bool matchFinished = false;
 
@@ -28,13 +40,16 @@ class MatchController {
   MatchController(this.config)
     : currentServerIndex = config.firstServerIndex; // 0 ou 1 selon qui commence
 
-  /// Ajoute un événement (ace, double fault, etc.) et l'applique
+  /// Record an event and apply it to update score/stats.
+  ///
+  /// The event is appended to `events` and then processed via `_applyEvent`.
   void addEvent(MatchEvent event) {
     events.add(event);
     _applyEvent(event);
   }
 
-  /// Annule le dernier événement en rejouant l'historique
+  /// Remove the last recorded event and recompute derived state by replaying
+  /// the remaining events from scratch.
   void undoLastEvent() {
     if (events.isEmpty) return;
     events.removeLast();
@@ -78,6 +93,9 @@ class MatchController {
     currentPoints = [0, 0];
     tieBreakPoints = [0, 0];
     inTieBreak = false;
+    _isSuperTieBreak = false;
+    _tieBreakPointCount = 0;
+    _tieBreakTarget = 7;
     matchFinished = false;
 
     // reset stats
@@ -88,7 +106,8 @@ class MatchController {
     currentServerIndex = config.firstServerIndex;
   }
 
-  // Retourne le dernier événement de type service (avant l'événement courant) pour le joueur
+  // Return the last serve-related event for `playerIndex` that belongs to the
+  // current point (used to infer first/second serve context).
   EventType? _lastServeEventForPlayer(int playerIndex) {
     // We must only consider serve events that belong to the current point.
     // Scan backward from the event just before the current one and stop if we
@@ -124,26 +143,36 @@ class MatchController {
     return null;
   }
 
+  /// Apply a single `MatchEvent` to update stats and scoring state.
+  ///
+  /// This is the central dispatcher that interprets event types (ace, winner,
+  /// double fault, serve in/out, etc.) and updates `stats`, `currentPoints`,
+  /// `score`, and other internal flags accordingly.
   void _applyEvent(MatchEvent e) {
     final p = e.playerIndex;
     final opp = 1 - p;
     // Helper: detect if the given player currently has a game-point (would win the game by winning this point).
-    bool _isGamePointForPlayer(int playerIndex) {
-      if (inTieBreak) return false;
+    bool isGamePointForPlayer(int playerIndex) {
+      if (inTieBreak) {
+        return false;
+      }
       final opponent = 1 - playerIndex;
       // 40 (3) and opponent has less than 40 -> game point
-      if (currentPoints[playerIndex] == 3 && currentPoints[opponent] < 3)
+      if (currentPoints[playerIndex] == 3 && currentPoints[opponent] < 3) {
         return true;
+      }
       // Advantage (4) is a game-winning point
-      if (currentPoints[playerIndex] == 4) return true;
+      if (currentPoints[playerIndex] == 4) {
+        return true;
+      }
       return false;
     }
 
     // Helper: if at the start of this point the receiver had a break opportunity, record faced/won/saved accordingly
-    void _recordBreakIfPresent(int winnerIndex) {
+    void recordBreakIfPresent(int winnerIndex) {
       final server = currentServerIndex;
       final receiver = 1 - server;
-      final receiverHadBP = _isGamePointForPlayer(receiver);
+      final receiverHadBP = isGamePointForPlayer(receiver);
       if (!receiverHadBP) return;
       // The server is the player who "faced" the break opportunity.
       stats[server].breakPointsFaced++;
@@ -163,18 +192,8 @@ class MatchController {
     if (e.type == EventType.firstServeOut) {
       awaitingSecondServe[p] = true;
     }
-    // Mark that a point is in progress when a serve-related event occurs
-    if (e.type == EventType.firstServeIn ||
-        e.type == EventType.firstServeOut ||
-        e.type == EventType.secondServeIn ||
-        e.type == EventType.secondServeOut ||
-        e.type == EventType.ace) {
-      _pointInProgress = true;
-      // _pendingMatchPointPlayer could be set here by evaluating whether the current
-      // point is a match point for either player. For now we keep it null and only
-      // use the flag to indicate an active point.
-      _pendingMatchPointPlayer = null;
-    }
+    // No-op: serve events are handled below; no separate "point in
+    // progress" flag is maintained — the event history defines the flow.
     switch (e.type) {
       case EventType.ace:
         // Ace counts as a first-serve point won
@@ -188,9 +207,8 @@ class MatchController {
           stats[server].firstServePointsWon++;
         }
         // check for break opportunity at start of point and record saved/converted
-        _recordBreakIfPresent(p);
+        recordBreakIfPresent(p);
         addPoint(p);
-        break;
       case EventType.doubleFault:
         // double fault: server loses point on 2nd serve
         stats[p].doubleFaults++;
@@ -204,65 +222,53 @@ class MatchController {
         // opponent wins point on return of 2nd serve
         stats[server].secondServePointsTotal++;
         stats[opp].secondServeReturnPointsWon++;
-        _recordBreakIfPresent(opp);
+        recordBreakIfPresent(opp);
         addPoint(opp);
-        break;
       case EventType.forcedError:
         stats[p].forcedErrors++;
         // decide serve context and update first/second serve point totals
-        _recordBreakIfPresent(opp);
+        recordBreakIfPresent(opp);
         _applyPointServeContext(opp);
         addPoint(opp);
-        break;
       case EventType.winner:
         stats[p].winners++;
         // winner scored a point; determine serve context (server at time of point)
-        _recordBreakIfPresent(p);
+        recordBreakIfPresent(p);
         _applyPointServeContext(p);
         addPoint(p);
-        break;
       case EventType.unforcedError:
         stats[p].unforcedErrors++;
         // opponent wins point
-        _recordBreakIfPresent(opp);
+        recordBreakIfPresent(opp);
         _applyPointServeContext(opp);
         addPoint(opp);
-        break;
       case EventType.firstServeIn:
         stats[p].firstServeIn++;
-        break;
       case EventType.firstServeOut:
         stats[p].firstServeOut++;
-        break;
       case EventType.secondServeIn:
         stats[p].secondServeIn++;
-        break;
       case EventType.secondServeOut:
         stats[p].secondServeOut++;
-        break;
       case EventType.point:
-        _recordBreakIfPresent(p);
+        recordBreakIfPresent(p);
         _applyPointServeContext(p);
         addPoint(p);
-        break;
       case EventType.breakPointFaced:
         // keep explicit faced event for compatibility
         stats[p].breakPointsFaced++;
-        break;
       case EventType.breakPointWon:
         // if explicit breakPointWon event is added, rely on automatic detection
         // to increment faced/won counters and avoid double-counting. We still
         // need to award the point.
-        _recordBreakIfPresent(p);
+        recordBreakIfPresent(p);
         _applyPointServeContext(p);
         addPoint(p);
-        break;
       case EventType.breakPointSaved:
         // explicit saved event: rely on automatic detection to record faced/saved
-        _recordBreakIfPresent(p);
+        recordBreakIfPresent(p);
         _applyPointServeContext(p);
         addPoint(p);
-        break;
     }
 
     // If this event resolves a point, reset the awaitingSecondServe flags so next point starts on 1st serve.
@@ -279,8 +285,6 @@ class MatchController {
       awaitingSecondServe[0] = false;
       awaitingSecondServe[1] = false;
       // point resolved
-      _pointInProgress = false;
-      _pendingMatchPointPlayer = null;
     }
   }
 
@@ -315,7 +319,7 @@ class MatchController {
     }
   }
 
-  /// Ajoute un point à un joueur
+  /// Add a point to `playerIndex`. Dispatches to tie-break or normal logic.
   void addPoint(int playerIndex) {
     if (inTieBreak) {
       _addTieBreakPoint(playerIndex);
@@ -336,8 +340,13 @@ class MatchController {
       if (currentPoints[opponent] < 3) {
         _winGame(playerIndex);
       } else if (currentPoints[opponent] == 3) {
-        // Passe à Avantage
-        currentPoints[playerIndex] = 4;
+        // At 40-40: if no-ad scoring configured, next point wins the game
+        if (config.matchFormat.noAd) {
+          _winGame(playerIndex);
+        } else {
+          // Passe à Avantage
+          currentPoints[playerIndex] = 4;
+        }
       } else if (currentPoints[opponent] == 4) {
         // retour à 40-40
         currentPoints[opponent] = 3;
@@ -365,45 +374,85 @@ class MatchController {
     } else {
       stats[returner].returnGamesWon++;
     }
-    // Vérifie tie-break
+    // Vérifie tie-break based on selected match format
     final p1 = score.currentSet.gamesP1;
     final p2 = score.currentSet.gamesP2;
+    final tbAt = config.matchFormat.tiebreakAt;
+    final isFinalSet = score.sets.length == config.matchFormat.totalSets;
 
-    if (p1 == 6 && p2 == 6) {
+    if (p1 == tbAt && p2 == tbAt) {
+      // begin tie-break
       inTieBreak = true;
       tieBreakPoints = [0, 0];
+      // decide if this tie-break is a super tiebreak (final-set special)
+      if (config.matchFormat.finalSetSuperTieBreak && isFinalSet) {
+        _isSuperTieBreak = true;
+        _tieBreakTarget = 10;
+      } else {
+        _isSuperTieBreak = false;
+        _tieBreakTarget = 7;
+      }
+      _tieBreakPointCount = 0;
+      // the player to serve first in the tie-break is the next server
+      currentServerIndex = 1 - currentServerIndex;
+      _tieBreakStartServer = currentServerIndex;
     } else {
       _checkSetWin();
+      // normal server rotation for next game
+      currentServerIndex = 1 - currentServerIndex;
     }
-    currentServerIndex = 1 - currentServerIndex;
   }
 
-  /// Points en tie-break
+  /// Handle a tie-break point for `playerIndex` and rotate server according to
+  /// standard tie-break serving rules (1, then 2/2/2... alternating).
   void _addTieBreakPoint(int playerIndex) {
     final opponent = 1 - playerIndex;
     tieBreakPoints[playerIndex]++;
+    _tieBreakPointCount++;
 
-    // Vérifie si le tie-break est gagné
-    if (tieBreakPoints[playerIndex] >= 7 &&
+    // Vérifie si le tie-break est gagné (target depends on normal/super TB)
+    final target = _tieBreakTarget;
+    if (tieBreakPoints[playerIndex] >= target &&
         (tieBreakPoints[playerIndex] - tieBreakPoints[opponent]) >= 2) {
-      // gagnant du tie-break = gagnant du set
+      // winner of tie-break wins the set
       if (playerIndex == 0) {
         score.setsWonP1++;
-        score.currentSet.gamesP1 = 7;
-        score.currentSet.gamesP2 = 6;
+        score.currentSet.gamesP1 =
+            (_isSuperTieBreak ? target : (target == 7 ? 7 : target));
+        score.currentSet.gamesP2 =
+            (_isSuperTieBreak ? 0 : (target == 7 ? 6 : target - 1));
       } else {
         score.setsWonP2++;
-        score.currentSet.gamesP1 = 6;
-        score.currentSet.gamesP2 = 7;
+        score.currentSet.gamesP1 =
+            (_isSuperTieBreak ? 0 : (target == 7 ? 6 : target - 1));
+        score.currentSet.gamesP2 =
+            (_isSuperTieBreak ? target : (target == 7 ? 7 : target));
       }
       inTieBreak = false;
+      _isSuperTieBreak = false;
+      _tieBreakPointCount = 0;
+      _tieBreakTarget = 7;
       tieBreakPoints = [0, 0];
       score.sets.add(SetScore());
 
-      if (score.setsWonP1 == config.bestOf.setsToWin ||
-          score.setsWonP2 == config.bestOf.setsToWin) {
+      if (score.setsWonP1 == config.matchFormat.setsToWin ||
+          score.setsWonP2 == config.matchFormat.setsToWin) {
         matchFinished = true;
       }
+    } else {
+      // rotate server for next tie-break point
+      // tie-break serving sequence: 1 point for starting server, then 2,2,2,...
+      final q = _tieBreakPointCount + 1; // upcoming point number (1-based)
+      final start = _tieBreakStartServer ?? currentServerIndex;
+      final oppOfStart = 1 - start;
+      int nextServer;
+      if (q == 1) {
+        nextServer = start;
+      } else {
+        final pairIndex = ((q - 2) ~/ 2);
+        nextServer = (pairIndex % 2 == 0) ? oppOfStart : start;
+      }
+      currentServerIndex = nextServer;
     }
   }
 
@@ -420,13 +469,13 @@ class MatchController {
       score.sets.add(SetScore());
     }
 
-    if (score.setsWonP1 == config.bestOf.setsToWin ||
-        score.setsWonP2 == config.bestOf.setsToWin) {
+    if (score.setsWonP1 == config.matchFormat.setsToWin ||
+        score.setsWonP2 == config.matchFormat.setsToWin) {
       matchFinished = true;
     }
   }
 
-  // === Fonctions pour stats ===
+  // === Helper API for common events (convenience wrappers) ===
   void addAce(int playerIndex) {
     addEvent(MatchEvent(type: EventType.ace, playerIndex: playerIndex));
   }
@@ -479,8 +528,11 @@ class MatchController {
     }
   }
 
-  /// Rejoue la liste d'événements et retourne la liste des PlayerStats pour chaque set (dans l'ordre)
-  /// Each element corresponds to the stats accumulated during that set.
+  /// Replay the recorded `events` and produce per-set cumulative `PlayerStats`.
+  ///
+  /// NOTE: this routine currently approximates tie-break behaviour and is
+  /// intended as a quick way to compute per-set snapshots. Improve it if you
+  /// need exact tie-break per-point statistics.
   List<PlayerStats> getPerSetStats() {
     // snapshots will contain cumulative stats after each set boundary.
     final snapshots = <List<PlayerStats>>[];
@@ -550,19 +602,22 @@ class MatchController {
     // helper: find last serve event for the tempCurrentServer that occurs after the
     // previous point-resolving event and before index `idx`.
     // helper: detect if temp player has a game-point in the temp state
-    bool _tempIsGamePointFor(int playerIndex) {
+    bool tempIsGamePointFor(int playerIndex) {
       final opponent = 1 - playerIndex;
       if (tempCurrentPoints[playerIndex] == 3 &&
-          tempCurrentPoints[opponent] < 3)
+          tempCurrentPoints[opponent] < 3) {
         return true;
-      if (tempCurrentPoints[playerIndex] == 4) return true;
+      }
+      if (tempCurrentPoints[playerIndex] == 4) {
+        return true;
+      }
       return false;
     }
 
-    void _tempRecordBreakIfPresent(int winnerIndex) {
+    void tempRecordBreakIfPresent(int winnerIndex) {
       final server = tempCurrentServer;
       final receiver = 1 - server;
-      final receiverHadBP = _tempIsGamePointFor(receiver);
+      final receiverHadBP = tempIsGamePointFor(receiver);
       if (!receiverHadBP) return;
       // server faced the break opportunity in the temp state
       tempStats[server].breakPointsFaced++;
@@ -573,7 +628,7 @@ class MatchController {
       }
     }
 
-    EventType? _findLastServeBefore(int idx, int server) {
+    EventType? findLastServeBefore(int idx, int server) {
       const resolving = {
         EventType.ace,
         EventType.doubleFault,
@@ -610,22 +665,20 @@ class MatchController {
           tempStats[tempCurrentServer].firstServeIn++;
           tempStats[tempCurrentServer].firstServePointsTotal++;
           tempStats[tempCurrentServer].firstServePointsWon++;
-          _tempRecordBreakIfPresent(p);
+          tempRecordBreakIfPresent(p);
           tempAddNormalPoint(p);
-          break;
         case EventType.doubleFault:
           tempStats[p].doubleFaults++;
           // ensure the firstServeOut is counted in the temp stats if missing
           final idx = events.indexOf(e);
-          final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+          final lastServe = findLastServeBefore(idx, tempCurrentServer);
           if (lastServe != EventType.firstServeOut) {
             tempStats[tempCurrentServer].firstServeOut++;
           }
           tempStats[tempCurrentServer].secondServePointsTotal++;
           tempStats[opp].secondServeReturnPointsWon++;
-          _tempRecordBreakIfPresent(opp);
+          tempRecordBreakIfPresent(opp);
           tempAddNormalPoint(opp);
-          break;
         case EventType.forcedError:
           tempStats[p].forcedErrors++;
           // infer serve context: look for recent serve events in the replay sequence before this event
@@ -633,7 +686,7 @@ class MatchController {
           // search backwards in events up to current index
           {
             final idx = events.indexOf(e);
-            final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+            final lastServe = findLastServeBefore(idx, tempCurrentServer);
             final isFirst =
                 lastServe == EventType.firstServeIn ||
                 lastServe == EventType.ace ||
@@ -646,15 +699,14 @@ class MatchController {
               tempStats[opp].secondServeReturnPointsWon++;
             }
           }
-          _tempRecordBreakIfPresent(opp);
+          tempRecordBreakIfPresent(opp);
           tempAddNormalPoint(opp);
-          break;
         case EventType.winner:
           tempStats[p].winners++;
           // infer by searching last serve as above
           {
             final idx = events.indexOf(e);
-            final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+            final lastServe = findLastServeBefore(idx, tempCurrentServer);
             final isFirst =
                 lastServe == EventType.firstServeIn ||
                 lastServe == EventType.ace ||
@@ -675,16 +727,15 @@ class MatchController {
               }
             }
           }
-          _tempRecordBreakIfPresent(p);
+          tempRecordBreakIfPresent(p);
           tempAddNormalPoint(p);
-          break;
         case EventType.unforcedError:
           tempStats[p].unforcedErrors++;
           // opponent wins
           // infer serve context for opponent
           {
             final idx = events.indexOf(e);
-            final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+            final lastServe = findLastServeBefore(idx, tempCurrentServer);
             final isFirst =
                 lastServe == EventType.firstServeIn ||
                 lastServe == EventType.ace ||
@@ -697,104 +748,101 @@ class MatchController {
               tempStats[1 - tempCurrentServer].secondServeReturnPointsWon++;
             }
           }
-          _tempRecordBreakIfPresent(opp);
+          tempRecordBreakIfPresent(opp);
           tempAddNormalPoint(opp);
-          break;
         case EventType.firstServeIn:
           tempStats[p].firstServeIn++;
-          break;
         case EventType.firstServeOut:
           tempStats[p].firstServeOut++;
-          break;
         case EventType.secondServeIn:
           tempStats[p].secondServeIn++;
-          break;
         case EventType.secondServeOut:
           tempStats[p].secondServeOut++;
-          break;
         case EventType.point:
           // generic point event - assume it's a point won by p and try to infer serve
           // We'll treat similar to winner
           {
             final idx = events.indexOf(e);
-            final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+            final lastServe = findLastServeBefore(idx, tempCurrentServer);
             final isFirst =
                 lastServe == EventType.firstServeIn ||
                 lastServe == EventType.ace ||
                 lastServe == null;
             if (isFirst) {
               tempStats[tempCurrentServer].firstServePointsTotal++;
-              if (p == tempCurrentServer)
+              if (p == tempCurrentServer) {
                 tempStats[tempCurrentServer].firstServePointsWon++;
-              else
+              } else {
                 tempStats[p].firstServeReturnPointsWon++;
+              }
             } else {
               tempStats[tempCurrentServer].secondServePointsTotal++;
-              if (p == tempCurrentServer)
+              if (p == tempCurrentServer) {
                 tempStats[tempCurrentServer].secondServePointsWon++;
-              else
+              } else {
                 tempStats[p].secondServeReturnPointsWon++;
+              }
             }
           }
-          _tempRecordBreakIfPresent(p);
+          tempRecordBreakIfPresent(p);
           tempAddNormalPoint(p);
-          break;
         case EventType.breakPointFaced:
           tempStats[p].breakPointsFaced++;
-          break;
         case EventType.breakPointWon:
           // similar to winner
           {
             final idx = events.indexOf(e);
-            final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+            final lastServe = findLastServeBefore(idx, tempCurrentServer);
             final isFirst =
                 lastServe == EventType.firstServeIn ||
                 lastServe == EventType.ace ||
                 lastServe == null;
             if (isFirst) {
               tempStats[tempCurrentServer].firstServePointsTotal++;
-              if (p == tempCurrentServer)
+              if (p == tempCurrentServer) {
                 tempStats[tempCurrentServer].firstServePointsWon++;
-              else
+              } else {
                 tempStats[p].firstServeReturnPointsWon++;
+              }
             } else {
               tempStats[tempCurrentServer].secondServePointsTotal++;
-              if (p == tempCurrentServer)
+              if (p == tempCurrentServer) {
                 tempStats[tempCurrentServer].secondServePointsWon++;
-              else
+              } else {
                 tempStats[p].secondServeReturnPointsWon++;
+              }
             }
           }
-          _tempRecordBreakIfPresent(p);
+          tempRecordBreakIfPresent(p);
           tempAddNormalPoint(p);
-          break;
         case EventType.breakPointSaved:
           // similar to breakPointWon: award the point to the saving player and
           // update serve-related point counters using last serve inference
           {
             final idx = events.indexOf(e);
-            final lastServe = _findLastServeBefore(idx, tempCurrentServer);
+            final lastServe = findLastServeBefore(idx, tempCurrentServer);
             final isFirst =
                 lastServe == EventType.firstServeIn ||
                 lastServe == EventType.ace ||
                 lastServe == null;
             if (isFirst) {
               tempStats[tempCurrentServer].firstServePointsTotal++;
-              if (p == tempCurrentServer)
+              if (p == tempCurrentServer) {
                 tempStats[tempCurrentServer].firstServePointsWon++;
-              else
+              } else {
                 tempStats[p].firstServeReturnPointsWon++;
+              }
             } else {
               tempStats[tempCurrentServer].secondServePointsTotal++;
-              if (p == tempCurrentServer)
+              if (p == tempCurrentServer) {
                 tempStats[tempCurrentServer].secondServePointsWon++;
-              else
+              } else {
                 tempStats[p].secondServeReturnPointsWon++;
+              }
             }
           }
-          _tempRecordBreakIfPresent(p);
+          tempRecordBreakIfPresent(p);
           tempAddNormalPoint(p);
-          break;
       }
     }
 

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import '../state/match_controller.dart';
 import '../models/player_stats.dart';
-import 'timeline_page.dart';
+import '../state/match_controller.dart';
 
 class StatsPage extends StatelessWidget {
   final MatchController controller;
@@ -353,20 +352,6 @@ class StatsPage extends StatelessWidget {
           ),
 
           const SizedBox(height: 16),
-          Center(
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.timeline),
-              label: const Text('Ouvrir la timeline'),
-              onPressed: () async {
-                await Navigator.push<void>(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => TimelinePage(controller: c),
-                  ),
-                );
-              },
-            ),
-          ),
         ],
       ),
     );
@@ -406,32 +391,5 @@ class StatsPage extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Widget _statRowDouble(
-    String label,
-    String p1,
-    String p2,
-    Color c1,
-    Color c2,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(p1, style: TextStyle(color: c1, fontSize: 16)),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          Text(p2, style: TextStyle(color: c2, fontSize: 16)),
-        ],
-      ),
-    );
-  }
-
-  String _formatTime(DateTime t) {
-    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
   }
 }

@@ -68,7 +68,7 @@ class Scoreboard extends StatelessWidget {
                 margin: const EdgeInsets.only(right: 6),
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
+                  color: color.withAlpha((0.12 * 255).round()),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.sports_tennis, size: 18, color: color),
@@ -86,7 +86,25 @@ class Scoreboard extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
+        // show rank and club if provided
+        if ((playerIndex == 0 && controller.config.player1Rank != null) ||
+            (playerIndex == 1 && controller.config.player2Rank != null))
+          Text(
+            playerIndex == 0
+                ? (controller.config.player1Rank ?? '')
+                : (controller.config.player2Rank ?? ''),
+            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+          ),
+        if ((playerIndex == 0 && controller.config.player1Club != null) ||
+            (playerIndex == 1 && controller.config.player2Club != null))
+          Text(
+            playerIndex == 0
+                ? (controller.config.player1Club ?? '')
+                : (controller.config.player2Club ?? ''),
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        const SizedBox(height: 6),
         Text(
           pointsDisplay,
           style: TextStyle(
@@ -105,10 +123,13 @@ class Scoreboard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 8),
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9),
+        color: Colors.white.withAlpha((0.9 * 255).round()),
         borderRadius: BorderRadius.circular(10),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6),
+          BoxShadow(
+            color: Colors.black.withAlpha((0.06 * 255).round()),
+            blurRadius: 6,
+          ),
         ],
       ),
       child: Column(

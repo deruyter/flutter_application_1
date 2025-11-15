@@ -5,12 +5,23 @@ class MatchConfig {
   final String player2Name;
   final BestOf bestOf;
   final int firstServerIndex;
+  final MatchFormat matchFormat;
+  // Optional player metadata
+  final String? player1Rank; // classement amateur / niveau
+  final String? player2Rank;
+  final String? player1Club;
+  final String? player2Club;
 
   const MatchConfig({
     required this.player1Name,
     required this.player2Name,
     required this.bestOf,
     required this.firstServerIndex,
+    required this.matchFormat,
+    this.player1Rank,
+    this.player2Rank,
+    this.player1Club,
+    this.player2Club,
   });
 }
 

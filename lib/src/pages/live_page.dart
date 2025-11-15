@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import '../models/match_event.dart';
 import '../state/match_controller.dart';
 import '../widgets/scoreboard.dart';
-import '../models/match_event.dart';
 import 'stats_page.dart';
-import 'timeline_page.dart';
 import 'summary_page.dart';
+import 'timeline_page.dart';
 
 class LivePage extends StatefulWidget {
   final MatchController controller;
@@ -45,67 +45,87 @@ class _LivePageState extends State<LivePage> {
   }
 
   Widget _liveBody(MatchController c) {
-    return SafeArea(
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 8),
-          // Big scoreboard
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Scoreboard(controller: c),
-          ),
+          // Scoreboard
+          Scoreboard(controller: c),
           const SizedBox(height: 12),
 
-          // Player action panels
+          // Player action panels: two columns on wide screens, stacked on narrow
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              child: Row(
-                children: [
-                  Expanded(child: _playerPanel(0, c)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _playerPanel(1, c)),
-                ],
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // breakpoint can be adjusted as needed
+                if (constraints.maxWidth > 600) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 6.0),
+                            child: _playerPanel(0, c),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 6.0),
+                            child: _playerPanel(1, c),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
+                // Narrow layout: stacked panels
+                return SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _playerPanel(0, c),
+                      const SizedBox(height: 10),
+                      _playerPanel(1, c),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
 
-          // Footer
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              vertical: 10.0,
-              horizontal: 12.0,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.timeline),
-                    label: const Text('Timeline'),
-                    onPressed: () {
-                      // switch to timeline tab
-                      DefaultTabController.of(context).animateTo(2);
-                    },
-                  ),
+          const SizedBox(height: 12),
+
+          // Footer actions: undo + summary when match finished
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: () {
+                  c.undoLastEvent();
+                  setState(() {});
+                },
+                icon: const Icon(Icons.undo),
+                label: const Text('Annuler'),
+              ),
+              const SizedBox(width: 8),
+              if (c.matchFinished) ...[
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SummaryPage(controller: c),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.article),
+                  label: const Text('Voir le résumé'),
                 ),
-                const SizedBox(width: 12),
-                if (c.matchFinished)
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.check),
-                      label: const Text('Voir le résumé'),
-                      onPressed: () {
-                        Navigator.pushReplacement<void, void>(
-                          context,
-                          MaterialPageRoute<void>(
-                            builder: (_) => SummaryPage(controller: c),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
               ],
-            ),
+            ],
           ),
         ],
       ),
@@ -167,7 +187,7 @@ class _LivePageState extends State<LivePage> {
                     padding: const EdgeInsets.only(left: 6.0),
                     child: Chip(
                       label: const Text('Server'),
-                      backgroundColor: color.withOpacity(0.12),
+                      backgroundColor: color.withAlpha((0.12 * 255).round()),
                     ),
                   ),
               ],
