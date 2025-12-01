@@ -13,7 +13,7 @@ class Scoreboard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [Colors.green.shade50, Colors.green.shade100],
@@ -24,181 +24,139 @@ class Scoreboard extends StatelessWidget {
         ),
         child: Column(
           children: [
-            // Noms et points
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: _playerColumn(0)),
-                _centerScoreCard(),
-                Expanded(child: _playerColumn(1)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Sets joués
-            _setScores(),
+            // Two rows: one per player. Columns: rank | name | club | set scores | current point
+            _playerRow(0),
+            const SizedBox(height: 8),
+            _playerRow(1),
           ],
         ),
       ),
     );
   }
 
-  /// Column affichant le joueur, son nom et un indicateur de serveur
-  Widget _playerColumn(int playerIndex) {
+  Widget _playerRow(int playerIndex) {
+    final rank =
+        playerIndex == 0
+            ? (controller.config.player1Rank ?? '')
+            : (controller.config.player2Rank ?? '');
+    final club =
+        playerIndex == 0
+            ? (controller.config.player1Club ?? '')
+            : (controller.config.player2Club ?? '');
+
     final name =
         playerIndex == 0
             ? controller.config.player1Name
             : controller.config.player2Name;
-    final isServer = controller.currentServerIndex == playerIndex;
-    final pointsDisplay =
-        controller.inTieBreak
-            ? controller.tieBreakPoints[playerIndex].toString()
-            : _pointToString(controller.currentPoints[playerIndex]);
 
     final color =
         playerIndex == 0 ? Colors.blue.shade700 : Colors.orange.shade800;
 
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isServer)
-              Container(
-                margin: const EdgeInsets.only(right: 6),
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: color.withAlpha((0.12 * 255).round()),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.sports_tennis, size: 18, color: color),
+        // Rank column (fixed width)
+        SizedBox(
+          width: 40,
+          child: Text(
+            rank,
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
+            textAlign: TextAlign.left,
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Name (limit width so following columns stay adjacent)
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: color,
               ),
-            Flexible(
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Club (compact)
+        SizedBox(
+          width: 100,
+          child: Text(
+            club,
+            style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Per-set scores: compact, left-aligned and adjacent to club
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(controller.score.sets.length, (i) {
+            final s = controller.score.sets[i];
+            final val = playerIndex == 0 ? s.gamesP1 : s.gamesP2;
+            return Padding(
+              padding: const EdgeInsets.only(right: 10.0),
               child: Text(
-                name,
-                textAlign: TextAlign.center,
-                style: TextStyle(
+                val.toString(),
+                style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: color,
                 ),
               ),
-            ),
-          ],
+            );
+          }),
         ),
-        const SizedBox(height: 6),
-        // show rank and club if provided
-        if ((playerIndex == 0 && controller.config.player1Rank != null) ||
-            (playerIndex == 1 && controller.config.player2Rank != null))
-          Text(
-            playerIndex == 0
-                ? (controller.config.player1Rank ?? '')
-                : (controller.config.player2Rank ?? ''),
-            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-          ),
-        if ((playerIndex == 0 && controller.config.player1Club != null) ||
-            (playerIndex == 1 && controller.config.player2Club != null))
-          Text(
-            playerIndex == 0
-                ? (controller.config.player1Club ?? '')
-                : (controller.config.player2Club ?? ''),
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-          ),
-        const SizedBox(height: 6),
-        Text(
-          pointsDisplay,
-          style: TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
+
+        const SizedBox(width: 12),
+        // Current point badge
+        _pointBadge(playerIndex),
       ],
     );
   }
 
-  Widget _centerScoreCard() {
+  Widget _pointBadge(int playerIndex) {
+    final display =
+        controller.inTieBreak
+            ? controller.tieBreakPoints[playerIndex].toString()
+            : _pointToString(controller.currentPoints[playerIndex]);
+
     return Container(
-      width: 120,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha((0.9 * 255).round()),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha((0.06 * 255).round()),
-            blurRadius: 6,
-          ),
-        ],
+        color: Colors.green.shade500,
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Column(
-        children: [
-          Text('Sets', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                controller.score.sets.last.gamesP1.toString(),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6.0),
-                child: Text(
-                  '-',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Text(
-                controller.score.sets.last.gamesP2.toString(),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ],
+      child: Text(
+        display,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
       ),
     );
   }
 
-  /// Affichage des sets
-  Widget _setScores() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var set in controller.score.sets)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text(
-              "${set.gamesP1}-${set.gamesP2}",
-              style: const TextStyle(fontSize: 18),
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// Conversion des points en tennis normal
   String _pointToString(int pts) {
     switch (pts) {
       case 0:
-        return "0";
+        return '0';
       case 1:
-        return "15";
+        return '15';
       case 2:
-        return "30";
+        return '30';
       case 3:
-        return "40";
+        return '40';
       case 4:
-        return "Av.";
+        return 'Av.';
       default:
-        return "";
+        return '';
     }
   }
 }

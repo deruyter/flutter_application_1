@@ -44,6 +44,12 @@ class MatchController {
   ///
   /// The event is appended to `events` and then processed via `_applyEvent`.
   void addEvent(MatchEvent event) {
+    // If the match has already finished, ignore further events. This keeps
+    // the recorded event history consistent and prevents continuing play
+    // after a match-winning condition has been reached. `undoLastEvent`
+    // can still remove the final event, allowing replay.
+    if (matchFinished) return;
+
     events.add(event);
     _applyEvent(event);
   }
