@@ -171,7 +171,7 @@ class _TimelinePageState extends State<TimelinePage>
                         TextSpan(
                           children: _buildPointSpans(
                             g.pointHistory,
-                            dropLastIfFollowed: idx < games.length - 1,
+                            dropLastIfFollowed: false,
                           ),
                         ),
                         maxLines: 2,
@@ -251,32 +251,57 @@ class _TimelinePageState extends State<TimelinePage>
     final spans = <InlineSpan>[];
     for (var i = 0; i < items.length; i++) {
       final entry = items[i];
-      var token = '';
       var rest = entry;
-      if (entry.startsWith('BM ')) {
-        token = 'BM';
-        rest = entry.substring(3);
-      } else if (entry.startsWith('BS ')) {
-        token = 'BS';
-        rest = entry.substring(3);
-      } else if (entry.startsWith('BB ')) {
-        token = 'BB';
-        rest = entry.substring(3);
+      final tokens = <String>[];
+
+      // Check for tokens at the END of the string (can have multiple: "40:30 BB BS")
+      if (entry.endsWith(' BM')) {
+        tokens.add('BM');
+        rest = entry.substring(0, entry.length - 3);
+      } else if (entry.endsWith(' BS')) {
+        tokens.add('BS');
+        rest = entry.substring(0, entry.length - 3);
+      } else if (entry.endsWith(' BB')) {
+        tokens.add('BB');
+        rest = entry.substring(0, entry.length - 3);
       }
 
-      if (token.isNotEmpty) {
+      // Check if there's another token before the first one (e.g., "40:30 BB BS" → check for BB after removing BS)
+      if (tokens.isNotEmpty && rest.endsWith(' BB')) {
+        tokens.insert(0, 'BB');
+        rest = rest.substring(0, rest.length - 3);
+      } else if (tokens.isNotEmpty && rest.endsWith(' BS')) {
+        tokens.insert(0, 'BS');
+        rest = rest.substring(0, rest.length - 3);
+      } else if (tokens.isNotEmpty && rest.endsWith(' BM')) {
+        tokens.insert(0, 'BM');
+        rest = rest.substring(0, rest.length - 3);
+      }
+
+      // Add the score first
+      spans.add(
+        TextSpan(
+          text: rest,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+        ),
+      );
+
+      // Then add token badges if present
+      for (final token in tokens) {
         final Color badgeColor =
             token == 'BM'
                 ? Colors.purple.shade700
                 : (token == 'BS'
-                    ? Colors.amber.shade700
+                    ? Colors.green.shade700
                     : Colors.orange.shade700);
+        spans.add(
+          const TextSpan(text: ' '), // Space before badge
+        );
         spans.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              margin: const EdgeInsets.only(right: 6),
               decoration: BoxDecoration(
                 color: badgeColor,
                 borderRadius: BorderRadius.circular(10),
@@ -293,13 +318,6 @@ class _TimelinePageState extends State<TimelinePage>
           ),
         );
       }
-
-      spans.add(
-        TextSpan(
-          text: rest,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-        ),
-      );
       if (i < items.length - 1) {
         spans.add(const TextSpan(text: ', ', style: TextStyle(fontSize: 12)));
       }
@@ -367,21 +385,8 @@ class _TimelinePageState extends State<TimelinePage>
       return false;
     }
 
-    bool wouldWinMatchIfWinSet(int playerIndex) {
-      final setsToWin = c.config.matchFormat.setsToWin;
-      final p1sets =
-          setP1 + (playerIndex == 0 && wouldWinSetIfWinGame(0) ? 1 : 0);
-      final p2sets =
-          setP2 + (playerIndex == 1 && wouldWinSetIfWinGame(1) ? 1 : 0);
-      if (p1sets >= setsToWin || p2sets >= setsToWin) {
-        return true;
-      }
-      return false;
-    }
-
     var gameHadBB = false;
     var gameHadBS = false;
-    var gameHadBM = false;
 
     for (final e in c.events) {
       const resolving = {
@@ -414,26 +419,27 @@ class _TimelinePageState extends State<TimelinePage>
       }
 
       final receiver = 1 - server;
-      final receiverHadBP = isGamePoint(receiver);
-      final bsForWinner = wouldWinSetIfWinGame(winner);
-      final bmForWinner = wouldWinMatchIfWinSet(winner);
 
       if (inTie) {
         tiePoints[winner]++;
-        if (receiverHadBP) {
-          gameHadBB = true;
-        }
-        if (bsForWinner) {
+        // Check BS and BB after incrementing tiebreak points
+        final p1HasGamePoint =
+            (tiePoints[0] >= 6 && (tiePoints[0] - tiePoints[1]) >= 1);
+        final p2HasGamePoint =
+            (tiePoints[1] >= 6 && (tiePoints[1] - tiePoints[0]) >= 1);
+        final receiverHasBB = (receiver == 0 ? p1HasGamePoint : p2HasGamePoint);
+        final bsForP1 = wouldWinSetIfWinGame(0) && p1HasGamePoint;
+        final bsForP2 = wouldWinSetIfWinGame(1) && p2HasGamePoint;
+        final hasBSToken = bsForP1 || bsForP2;
+        if (hasBSToken) {
           gameHadBS = true;
         }
-        if (bmForWinner) {
-          gameHadBM = true;
+        if (receiverHasBB) {
+          gameHadBB = true;
         }
-        final token =
-            bmForWinner
-                ? 'BM '
-                : (bsForWinner ? 'BS ' : (receiverHadBP ? 'BB ' : ''));
-        currentGame.pointHistory.add('$token${tiePoints[0]}-${tiePoints[1]}');
+        final score = '${tiePoints[0]}-${tiePoints[1]}';
+        final tokens = (receiverHasBB ? ' BB' : '') + (hasBSToken ? ' BS' : '');
+        currentGame.pointHistory.add('$score$tokens');
         final opp = 1 - winner;
         if (tiePoints[winner] >= 7 &&
             (tiePoints[winner] - tiePoints[opp]) >= 2) {
@@ -447,7 +453,6 @@ class _TimelinePageState extends State<TimelinePage>
           currentGame.winner = winner;
           currentGame.hasBreakPoint = gameHadBB;
           currentGame.hasSetPoint = gameHadBS;
-          currentGame.hasMatchPoint = gameHadBM;
           currentGame.isBreak = (currentGame.winner != currentGame.server);
           // commit the completed game
           currentSet.add(currentGame);
@@ -482,47 +487,51 @@ class _TimelinePageState extends State<TimelinePage>
           server = nextServer;
           inTie = false;
           tiePoints = [0, 0];
-          gameHadBB = gameHadBS = gameHadBM = false;
+          gameHadBB = gameHadBS = false;
         }
       } else {
         if (points[winner] < 3) {
           points[winner]++;
-          final token =
-              bmForWinner
-                  ? 'BM '
-                  : (bsForWinner ? 'BS ' : (receiverHadBP ? 'BB ' : ''));
-          currentGame.pointHistory.add(
-            '$token${ptsLabel(points[0])}:${ptsLabel(points[1])}',
-          );
-          if (receiverHadBP) {
+          // Check BS and BB after incrementing points
+          final p1HasGamePoint = isGamePoint(0);
+          final p2HasGamePoint = isGamePoint(1);
+          final receiverHasBB =
+              (receiver == 0 ? p1HasGamePoint : p2HasGamePoint);
+          final bsForP1 = wouldWinSetIfWinGame(0) && p1HasGamePoint;
+          final bsForP2 = wouldWinSetIfWinGame(1) && p2HasGamePoint;
+          final hasBSToken = bsForP1 || bsForP2;
+          final score = '${ptsLabel(points[0])}:${ptsLabel(points[1])}';
+          final tokens =
+              (receiverHasBB ? ' BB' : '') + (hasBSToken ? ' BS' : '');
+          currentGame.pointHistory.add('$score$tokens');
+          if (receiverHasBB) {
             gameHadBB = true;
+          }
+          if (hasBSToken) {
+            gameHadBS = true;
           }
         } else if (points[winner] == 3) {
           final opp = 1 - winner;
           if (points[opp] < 3) {
+            // Winner was already at 40 (points[winner]==3) and opponent < 40
+            // The score was already added in the previous if branch, so DON'T add it again
             if (winner == 0) {
               setP1++;
             } else {
               setP2++;
             }
-            final token =
-                bmForWinner
-                    ? 'BM '
-                    : (bsForWinner ? 'BS ' : (receiverHadBP ? 'BB ' : ''));
-            currentGame.pointHistory.add(
-              '$token${ptsLabel(points[0])}:${ptsLabel(points[1])}',
-            );
-            if (receiverHadBP) {
+            // Just check if this was a set point or break point
+            final bsForWinner = wouldWinSetIfWinGame(winner);
+            final receiverHasBB = (winner == receiver);
+            if (receiverHasBB) {
               gameHadBB = true;
             }
             if (bsForWinner) gameHadBS = true;
-            if (bmForWinner) gameHadBM = true;
             currentGame.player1Games = setP1;
             currentGame.player2Games = setP2;
             currentGame.winner = winner;
             currentGame.hasBreakPoint = gameHadBB;
             currentGame.hasSetPoint = gameHadBS;
-            currentGame.hasMatchPoint = gameHadBM;
             currentGame.isBreak = (currentGame.winner != currentGame.server);
             // commit the game
             currentSet.add(currentGame);
@@ -550,7 +559,7 @@ class _TimelinePageState extends State<TimelinePage>
 
             server = nextServer;
             points = [0, 0];
-            gameHadBB = gameHadBS = gameHadBM = false;
+            gameHadBB = gameHadBS = false;
             final tbAt = c.config.matchFormat.tiebreakAt;
             if (!inTie && setP1 == tbAt && setP2 == tbAt) {
               inTie = true;
@@ -564,53 +573,49 @@ class _TimelinePageState extends State<TimelinePage>
             }
           } else if (points[opp] == 3) {
             points[winner] = 4;
-            final token =
-                bmForWinner
-                    ? 'BM '
-                    : (bsForWinner ? 'BS ' : (receiverHadBP ? 'BB ' : ''));
-            currentGame.pointHistory.add(
-              '$token${ptsLabel(points[0])}:${ptsLabel(points[1])}',
-            );
-            if (receiverHadBP) {
+            // Check BS and BB after setting advantage
+            final p1HasGamePoint = isGamePoint(0);
+            final p2HasGamePoint = isGamePoint(1);
+            final receiverHasBB =
+                (receiver == 0 ? p1HasGamePoint : p2HasGamePoint);
+            final bsForP1 = wouldWinSetIfWinGame(0) && p1HasGamePoint;
+            final bsForP2 = wouldWinSetIfWinGame(1) && p2HasGamePoint;
+            final hasBSToken = bsForP1 || bsForP2;
+            final score = '${ptsLabel(points[0])}:${ptsLabel(points[1])}';
+            final tokens =
+                (receiverHasBB ? ' BB' : '') + (hasBSToken ? ' BS' : '');
+            currentGame.pointHistory.add('$score$tokens');
+            if (receiverHasBB) {
               gameHadBB = true;
+            }
+            if (hasBSToken) {
+              gameHadBS = true;
             }
           } else if (points[opp] == 4) {
             points[opp] = 3;
-            final token =
-                bmForWinner
-                    ? 'BM '
-                    : (bsForWinner ? 'BS ' : (receiverHadBP ? 'BB ' : ''));
-            currentGame.pointHistory.add(
-              '$token${ptsLabel(points[0])}:${ptsLabel(points[1])}',
-            );
-            if (receiverHadBP) {
-              gameHadBB = true;
-            }
+            // After deuce, no one has advantage yet, so no BS or BB
+            final score = '${ptsLabel(points[0])}:${ptsLabel(points[1])}';
+            currentGame.pointHistory.add(score);
           }
         } else if (points[winner] == 4) {
+          // Winner has advantage (points[winner]==4) and wins the game
+          // The score was already added when advantage was gained, so DON'T add it again
           if (winner == 0) {
             setP1++;
           } else {
             setP2++;
           }
-          final token =
-              bmForWinner
-                  ? 'BM '
-                  : (bsForWinner ? 'BS ' : (receiverHadBP ? 'BB ' : ''));
-          currentGame.pointHistory.add(
-            '$token${ptsLabel(points[0])}:${ptsLabel(points[1])}',
-          );
-          if (receiverHadBP) {
+          final bsForWinner = wouldWinSetIfWinGame(winner);
+          final receiverHasBB = (winner == receiver);
+          if (receiverHasBB) {
             gameHadBB = true;
           }
           if (bsForWinner) gameHadBS = true;
-          if (bmForWinner) gameHadBM = true;
           currentGame.player1Games = setP1;
           currentGame.player2Games = setP2;
           currentGame.winner = winner;
           currentGame.hasBreakPoint = gameHadBB;
           currentGame.hasSetPoint = gameHadBS;
-          currentGame.hasMatchPoint = gameHadBM;
           currentGame.isBreak = (currentGame.winner != currentGame.server);
           // commit the game
           currentSet.add(currentGame);
@@ -638,7 +643,7 @@ class _TimelinePageState extends State<TimelinePage>
 
           server = nextServer;
           points = [0, 0];
-          gameHadBB = gameHadBS = gameHadBM = false;
+          gameHadBB = gameHadBS = false;
           final tbAt = c.config.matchFormat.tiebreakAt;
           if (!inTie && setP1 == tbAt && setP2 == tbAt) {
             inTie = true;
@@ -679,7 +684,6 @@ class _GameRecord {
   List<String> pointHistory;
   bool hasBreakPoint;
   bool hasSetPoint;
-  bool hasMatchPoint;
   int? winner;
   bool isBreak;
 
@@ -690,7 +694,6 @@ class _GameRecord {
   }) : pointHistory = [],
        hasBreakPoint = false,
        hasSetPoint = false,
-       hasMatchPoint = false,
        winner = null,
        isBreak = false;
 }
