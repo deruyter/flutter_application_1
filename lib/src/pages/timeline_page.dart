@@ -100,7 +100,8 @@ class _TimelinePageState extends State<TimelinePage>
         // scoreText computed inline below using fixed-width fields
         final bg = idx % 2 == 0 ? Colors.white : Colors.grey.shade50;
 
-        return Container(
+        // Build the game row widget
+        final gameRow = Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
           color: bg,
@@ -118,18 +119,21 @@ class _TimelinePageState extends State<TimelinePage>
                   SizedBox(
                     width: 56,
                     child: Center(
-                      child: CircleAvatar(
-                        radius: 12,
-                        backgroundColor: (g.server == 0
-                                ? Colors.blue
-                                : Colors.orange)
-                            .withAlpha(220),
-                        child: const Icon(
-                          Icons.sports_tennis,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child:
+                          g.hideServerIcon
+                              ? const SizedBox.shrink()
+                              : CircleAvatar(
+                                radius: 12,
+                                backgroundColor: (g.server == 0
+                                        ? Colors.blue
+                                        : Colors.orange)
+                                    .withAlpha(220),
+                                child: const Icon(
+                                  Icons.sports_tennis,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
                     ),
                   ),
 
@@ -150,6 +154,30 @@ class _TimelinePageState extends State<TimelinePage>
                                 ),
                                 textAlign: TextAlign.center,
                               )
+                              : g.isTiebreakPoint
+                              ? // If this tiebreak point is the final one that closes the set
+                              // (resulting in a 7-6 / 6-7 games score), show the games
+                              // score (7-6) in the games column. Otherwise show the
+                              // running tiebreak score (e.g. 4-3).
+                              ((g.player1Games == 7 && g.player2Games == 6) ||
+                                      (g.player1Games == 6 &&
+                                          g.player2Games == 7))
+                                  ? Text(
+                                    '${g.player1Games}-${g.player2Games}',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  )
+                                  : Text(
+                                    '${g.tiebreakScore1}-${g.tiebreakScore2}',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  )
                               : Text(
                                 '${g.player1Games}-${g.player2Games}',
                                 style: const TextStyle(
@@ -206,6 +234,40 @@ class _TimelinePageState extends State<TimelinePage>
             ],
           ),
         );
+
+        // If this is the start of a tiebreak, wrap with a title
+        if (g.isMatchTiebreakStart) {
+          return Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  border: Border(
+                    top: BorderSide(color: Colors.blue.shade300, width: 2),
+                    bottom: BorderSide(color: Colors.blue.shade300, width: 2),
+                  ),
+                ),
+                child: Text(
+                  '🎾 TIE-BREAK',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              gameRow,
+            ],
+          );
+        }
+
+        return gameRow;
       },
     );
   }
@@ -435,56 +497,136 @@ class _TimelinePageState extends State<TimelinePage>
 
       if (inTie) {
         tiePoints[winner]++;
-        // Check BS, BB and BM after incrementing tiebreak points
+
+        // In tiebreak, each point creates a separate game record
+        // Check BS and BM after incrementing tiebreak points
         final p1HasGamePoint =
             (tiePoints[0] >= 6 && (tiePoints[0] - tiePoints[1]) >= 1);
         final p2HasGamePoint =
             (tiePoints[1] >= 6 && (tiePoints[1] - tiePoints[0]) >= 1);
-        final receiverHasBB = (receiver == 0 ? p1HasGamePoint : p2HasGamePoint);
         final bmForP1 = wouldWinMatchIfWinGame(0) && p1HasGamePoint;
         final bmForP2 = wouldWinMatchIfWinGame(1) && p2HasGamePoint;
         final hasBMToken = bmForP1 || bmForP2;
         final bsForP1 = wouldWinSetIfWinGame(0) && p1HasGamePoint && !bmForP1;
         final bsForP2 = wouldWinSetIfWinGame(1) && p2HasGamePoint && !bmForP2;
         final hasBSToken = bsForP1 || bsForP2;
-        if (hasBMToken) {
-          gameHadBM = true;
+
+        // Build the score with tokens (no BB in tiebreak)
+        final tokens = (hasBMToken ? ' BM' : (hasBSToken ? ' BS' : ''));
+
+        // Create a game record for THIS point in the tiebreak
+        final tiePointGame = _GameRecord(
+          server: server,
+          player1Games: setP1,
+          player2Games: setP2,
+          isTiebreakPoint: true,
+          isMatchTiebreakStart:
+              tiePoints[0] + tiePoints[1] == 1, // First point of tiebreak
+          tiebreakScore1: tiePoints[0],
+          tiebreakScore2: tiePoints[1],
+        );
+        // For tiebreak points we don't add full point history, but if there
+        // are tokens (BS/BM) we want to display them next to the tiebreak
+        // score in the point-history column so they render as badges.
+        if (tokens.isNotEmpty) {
+          tiePointGame.pointHistory.add(
+            '${tiePointGame.tiebreakScore1}:${tiePointGame.tiebreakScore2} ${tokens.trim()}',
+          );
         }
-        if (hasBSToken) {
-          gameHadBS = true;
+        tiePointGame.winner = winner;
+        tiePointGame.hasBreakPoint = false; // No BB in tiebreak
+        tiePointGame.hasSetPoint = hasBSToken;
+        tiePointGame.hasMatchPoint = hasBMToken;
+        tiePointGame.isBreak =
+            (winner == receiver); // Service lost if receiver wins
+
+        // Commit this tiebreak point as a separate game
+        currentSet.add(tiePointGame);
+
+        // Determine server for NEXT point in tiebreak
+        // Server alternates every 2 points starting after the first point
+        final totalPoints = tiePoints[0] + tiePoints[1];
+        if (totalPoints % 2 == 1) {
+          server = 1 - server;
         }
-        if (receiverHasBB) {
-          gameHadBB = true;
-        }
-        final score = '${tiePoints[0]}-${tiePoints[1]}';
-        final tokens =
-            (receiverHasBB ? ' BB' : '') +
-            (hasBMToken ? ' BM' : (hasBSToken ? ' BS' : ''));
-        currentGame.pointHistory.add('$score$tokens');
+
         final opp = 1 - winner;
         if (tiePoints[winner] >= 7 &&
             (tiePoints[winner] - tiePoints[opp]) >= 2) {
+          // Tiebreak finished - update the score to 7-6 or 6-7
+          int finalP1;
+          int finalP2;
           if (winner == 0) {
             setP1++;
+            finalP1 = 7;
+            finalP2 = 6;
           } else {
             setP2++;
+            finalP1 = 6;
+            finalP2 = 7;
           }
-          currentGame.player1Games = setP1;
-          currentGame.player2Games = setP2;
-          currentGame.winner = winner;
-          currentGame.hasBreakPoint = gameHadBB;
-          currentGame.hasSetPoint = gameHadBS;
-          currentGame.hasMatchPoint = gameHadBM;
-          currentGame.isBreak = (currentGame.winner != currentGame.server);
-          // commit the completed game
-          currentSet.add(currentGame);
 
-          // decide next server (next game) before deciding set boundary
-          final nextServer = 1 - server;
+          // Replace the pre-tiebreak "6-6 jeu en cours" placeholder with the
+          // finished 7-6/6-7 game record, so the timeline shows 6-6 then the
+          // final 7-6 (not an extra ongoing game between them).
+          final tbAt = c.config.matchFormat.tiebreakAt;
+          currentSet.removeWhere(
+            (g) =>
+                g.winner == null &&
+                !g.isTiebreakPoint &&
+                g.player1Games == tbAt &&
+                g.player2Games == tbAt,
+          );
+
+          final firstTieIndex = currentSet.indexWhere(
+            (g) => g.isTiebreakPoint == true,
+          );
+          final insertIndex =
+              firstTieIndex == -1 ? currentSet.length : firstTieIndex;
+
+          // Create a finished game record representing the 7-6/6-7 result
+          final finishedGame = _GameRecord(
+            server: tiePointGame.server,
+            player1Games: finalP1,
+            player2Games: finalP2,
+          );
+          finishedGame.winner = winner;
+          finishedGame.hasBreakPoint = tiePointGame.hasBreakPoint;
+          finishedGame.hasSetPoint = tiePointGame.hasSetPoint;
+          finishedGame.hasMatchPoint = tiePointGame.hasMatchPoint;
+          // For the final 7-6 game there is no server/serve to attribute and
+          // we should not show a "SERVICE PERDU" badge. Clear isBreak and
+          // hide the server icon for this synthetic finished-game record.
+          finishedGame.isBreak = false;
+          finishedGame.hideServerIcon = true;
+          // Also add the final tie-break score to the finished game's
+          // description so the 7-6 row shows the tie-break result (e.g. "8:6").
+          if (tiePointGame.tiebreakScore1 != null &&
+              tiePointGame.tiebreakScore2 != null) {
+            var desc =
+                '${tiePointGame.tiebreakScore1}:${tiePointGame.tiebreakScore2}';
+            if (tokens.isNotEmpty) desc = '\$desc ${tokens.trim()}';
+            finishedGame.pointHistory.add(desc);
+          }
+
+          currentSet.insert(insertIndex, finishedGame);
+
+          // decide next server for a same-set next game (flip) and for a new
+          // set (based on the match's firstServerIndex and total games in the
+          // just-finished set). This ensures after 7-6 the following set's
+          // first server follows parity rules.
+          final nextServerIfSameSet = 1 - server;
+          final nextServerIfNewSet =
+              (c.config.firstServerIndex + (setP1 + setP2)) % 2;
 
           // if set finished, push it to result and reset per-set counters
           final setFinished =
-              (setP1 >= 6 || setP2 >= 6) && (setP1 - setP2).abs() >= 2;
+              ((setP1 >= 6 || setP2 >= 6) && (setP1 - setP2).abs() >= 2) ||
+              (setP1 == 7 && setP2 == 6) ||
+              (setP1 == 6 && setP2 == 7);
+          final nextServer =
+              setFinished ? nextServerIfNewSet : nextServerIfSameSet;
+
           if (setFinished) {
             result.add(currentSet);
             // reset per-set counters for the new set
@@ -509,7 +651,9 @@ class _TimelinePageState extends State<TimelinePage>
           server = nextServer;
           inTie = false;
           tiePoints = [0, 0];
-          gameHadBB = gameHadBS = false;
+          points = [0, 0];
+          gameHadBB = gameHadBS = gameHadBM = false;
+          continue; // Skip to next event after tiebreak ends
         }
       } else {
         if (points[winner] < 3) {
@@ -566,9 +710,15 @@ class _TimelinePageState extends State<TimelinePage>
             // commit the game
             currentSet.add(currentGame);
 
-            final nextServer = 1 - server;
+            final nextServerIfSameSet = 1 - server;
+            final nextServerIfNewSet =
+                (c.config.firstServerIndex + (setP1 + setP2)) % 2;
             final setFinished =
-                (setP1 >= 6 || setP2 >= 6) && (setP1 - setP2).abs() >= 2;
+                ((setP1 >= 6 || setP2 >= 6) && (setP1 - setP2).abs() >= 2) ||
+                (setP1 == 7 && setP2 == 6) ||
+                (setP1 == 6 && setP2 == 7);
+            final nextServer =
+                setFinished ? nextServerIfNewSet : nextServerIfSameSet;
             if (setFinished) {
               result.add(currentSet);
               setP1 = 0;
@@ -592,9 +742,25 @@ class _TimelinePageState extends State<TimelinePage>
             gameHadBB = gameHadBS = gameHadBM = false;
             final tbAt = c.config.matchFormat.tiebreakAt;
             if (!inTie && setP1 == tbAt && setP2 == tbAt) {
+              // Before starting tiebreak, add the 6-6 game to show "jeu en cours"
+              // Determine the server who should start the tiebreak based on the
+              // match's first server and the total games played in this set.
+              final tieStartServer =
+                  (c.config.firstServerIndex + (setP1 + setP2)) % 2;
+
+              currentGame = _GameRecord(
+                server: tieStartServer,
+                player1Games: setP1,
+                player2Games: setP2,
+              );
+              currentGame.winner = null; // Mark as ongoing
+              currentSet.add(currentGame);
+
               inTie = true;
               tiePoints = [0, 0];
-              server = 1 - server;
+              // Ensure the server variable is set to the tie-start server so
+              // subsequent tie-point records use the correct server.
+              server = tieStartServer;
               currentGame = _GameRecord(
                 server: server,
                 player1Games: setP1,
@@ -660,9 +826,15 @@ class _TimelinePageState extends State<TimelinePage>
           // commit the game
           currentSet.add(currentGame);
 
-          final nextServer = 1 - server;
+          final nextServerIfSameSet = 1 - server;
+          final nextServerIfNewSet =
+              (c.config.firstServerIndex + (setP1 + setP2)) % 2;
           final setFinished =
-              (setP1 >= 6 || setP2 >= 6) && (setP1 - setP2).abs() >= 2;
+              ((setP1 >= 6 || setP2 >= 6) && (setP1 - setP2).abs() >= 2) ||
+              (setP1 == 7 && setP2 == 6) ||
+              (setP1 == 6 && setP2 == 7);
+          final nextServer =
+              setFinished ? nextServerIfNewSet : nextServerIfSameSet;
           if (setFinished) {
             result.add(currentSet);
             setP1 = 0;
@@ -683,9 +855,18 @@ class _TimelinePageState extends State<TimelinePage>
 
           server = nextServer;
           points = [0, 0];
-          gameHadBB = gameHadBS = false;
+          gameHadBB = gameHadBS = gameHadBM = false;
           final tbAt = c.config.matchFormat.tiebreakAt;
           if (!inTie && setP1 == tbAt && setP2 == tbAt) {
+            // Before starting tiebreak, add the 6-6 game to show "jeu en cours"
+            currentGame = _GameRecord(
+              server: nextServer,
+              player1Games: setP1,
+              player2Games: setP2,
+            );
+            currentGame.winner = null; // Mark as ongoing
+            currentSet.add(currentGame);
+
             inTie = true;
             tiePoints = [0, 0];
             server = 1 - server;
@@ -727,15 +908,25 @@ class _GameRecord {
   bool hasMatchPoint;
   int? winner;
   bool isBreak;
+  bool isTiebreakPoint;
+  bool isMatchTiebreakStart; // Marks the first point of a tiebreak
+  int? tiebreakScore1;
+  int? tiebreakScore2;
+  bool hideServerIcon;
 
   _GameRecord({
     required this.server,
     required this.player1Games,
     required this.player2Games,
+    this.isTiebreakPoint = false,
+    this.isMatchTiebreakStart = false,
+    this.tiebreakScore1,
+    this.tiebreakScore2,
   }) : pointHistory = [],
        hasBreakPoint = false,
        hasSetPoint = false,
        hasMatchPoint = false,
        winner = null,
-       isBreak = false;
+       isBreak = false,
+       hideServerIcon = false;
 }
